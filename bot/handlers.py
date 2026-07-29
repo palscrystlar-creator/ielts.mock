@@ -96,3 +96,44 @@ async def process_test_answer(message: types.Message, state: FSMContext):
     else:
         await state.update_data(current_index=next_index, history=history)
         await send_question(message, state, next_index)
+@router.message(F.voice)
+async def handle_voice(message: Message, bot: Bot):
+    user_id = message.from_user.id
+    mode = USER_MODE.get(user_id, "menu")
+    if mode != "assistant":
+        await message.answer("Ovozli practice uchun avval 💬 <b>AI Assistant</b> rejimini tanlang: /start bosing.")
+        return
+
+    reset_user_timer(user_id, bot)
+    processing = await message.answer("🎧 Eshityapman...")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        ogg_path = os.path.join(tmp, "voice.ogg")
+        try:
+            file = await bot.get_file(message.voice.file_id)
+            await bot.download_file(file.file_path, ogg_path)
+            text = ai.transcribe_audio(ogg_path)
+        except Exception as e:
+            logger.exception("Voice transcribe error")
+            await processing.edit_text(f"❌ Audioni matnga aylantirishda xatolik yuz berdi: {e}")
+            return
+
+        await processing.edit_text(f"📝 Eshitganim: <i>{text}</i>\n\n⏳ Zaharli javob tayyorlanyapti...")
+
+        try:
+            feedback = ai.correct_and_explain(text)
+        except Exception as e:
+            logger.exception("Correction error")
+            await message.answer(f"❌ Tahlil qilishda xatolik yuz berdi: {e}")
+            return
+
+        # Matnni ham yuboramiz
+        await message.answer(feedback)
+
+        # Matnni tekin gTTS orqali ovozga aylantirib, voice message qilib yuboramiz
+        try:
+            mp3_path = os.path.join(tmp, "reply.mp3")
+            ai.text_to_speech(feedback, mp3_path)
+            await message.answer_voice(FSInputFile(mp3_path))
+        except Exception:
+            logger.exception("TTS reply error")
