@@ -1,117 +1,88 @@
-import os
-import tempfile
-import logging
-
-from aiogram import Router, F, Bot
-from aiogram.types import Message, CallbackQuery
+from aiogram import Router, F, types
 from aiogram.filters import CommandStart, Command
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import StatesGroup, State
+import os
 
-from .keyboards import main_menu, assistant_menu
-from . import ai
+from bot.ai import get_ai_response, evaluate_speaking_test
+from bot.keyboards import get_main_keyboard
 
-logger = logging.getLogger(__name__)
 router = Router()
 
-USER_MODE: dict[int, str] = {}
+class TestState(StatesGroup):
+    in_test = State()
 
-WELCOME_TEXT = (
-    "Salom! 👋 Men sizning IELTS Speaking yordamchingizman.\n\n"
-    "🗣 <b>IELTS Mock Test</b> — alohida oynada ochiladigan, to'liq ovozli mock speaking test. "
-    "Har safar AI random savollar tanlaydi.\n\n"
-    "💬 <b>AI Assistant</b> — shu yerda, chatda ovozli yoki yozma gapiring. "
-    "Xatolaringiz aynan qaysi joyda ekanini tushuntirib, to'g'ri variantini ko'rsataman.\n\n"
-    "Boshlash uchun tugmalardan birini tanlang 👇"
-)
-
-ASSISTANT_TEXT = (
-    "💬 <b>AI Assistant rejimi yoqildi</b>\n\n"
-    "Menga ovozli xabar yuboring yoki matn yozing — ingliz tilida gapirishga harakat qiling.\n"
-    "Men xatolaringizni aynan qaysi joyda ekanini tushuntirib, to'g'ri variantini ko'rsataman."
-)
-
+# Test savollari strukturasi
+MOCK_QUESTIONS = [
+    # Part 1
+    {"part": 1, "q": "Let's talk about your hometown. Where are you from?"},
+    {"part": 1, "q": "What do you like most about your hometown?"},
+    # Part 2
+    {"part": 2, "q": "Describe a book you recently read. You should say: what it was, why you read it, and explain if you liked it."},
+    # Part 3
+    {"part": 3, "q": "Do you think young people read enough books nowadays?"},
+    {"part": 3, "q": "How has modern technology changed reading habits?"}
+]
 
 @router.message(CommandStart())
-async def cmd_start(message: Message):
-    USER_MODE[message.from_user.id] = "menu"
-    await message.answer(WELCOME_TEXT, reply_markup=main_menu())
+async def cmd_start(message: types.Message, state: FSMContext):
+    await state.clear()
+    text = (
+        "👋 **Xush kelibsiz! Men sizning IELTS Speaking AI Yordamchingizman.**\n\n"
+        "Mock test topshirish uchun tugmani bosing yoki Mini App'dan foydalaning!"
+    )
+    await message.answer(text, reply_markup=get_main_keyboard(), parse_mode="Markdown")
 
-
-@router.message(Command("help"))
-async def cmd_help(message: Message):
+@router.message(F.text == "🎯 Start Mock Test")
+async def start_mock_test(message: types.Message, state: FSMContext):
+    await state.set_state(TestState.in_test)
+    
+    # Test ma'lumotlarini xotirada saqlaymiz
+    await state.update_data(current_index=0, history=[])
+    
+    first_q = MOCK_QUESTIONS[0]["q"]
+    part = MOCK_QUESTIONS[0]["part"]
+    
     await message.answer(
-        "🗣 IELTS Mock — tugmani bosing, mini oynada AI bilan to'liq speaking test topshirasiz.\n"
-        "💬 AI Assistant — shu yerda erkin practice qiling, xatolar tushuntiriladi.\n\n"
-        "Boshqa menyuga qaytish uchun /start yozing."
+        f"📍 **Part {part}**\n\n1-Savol:\n{first_q}\n\n*(Javobingizni matn yoki ovoz shaklida yuboring)*",
+        parse_mode="Markdown"
     )
 
-
-@router.callback_query(F.data == "mode_assistant")
-async def cb_assistant(callback: CallbackQuery):
-    USER_MODE[callback.from_user.id] = "assistant"
-    await callback.message.edit_text(ASSISTANT_TEXT, reply_markup=assistant_menu())
-    await callback.answer()
-
-
-@router.callback_query(F.data == "mode_menu")
-async def cb_menu(callback: CallbackQuery):
-    USER_MODE[callback.from_user.id] = "menu"
-    await callback.message.edit_text(WELCOME_TEXT, reply_markup=main_menu())
-    await callback.answer()
-
-
-@router.callback_query(F.data == "help")
-async def cb_help(callback: CallbackQuery):
-    await callback.answer(
-        "IELTS Mock — ovozli mock test (mini oynada).\nAI Assistant — practice va xato tuzatish.",
-        show_alert=True,
-    )
-
-
-@router.message(F.voice)
-async def handle_voice(message: Message, bot: Bot):
-    mode = USER_MODE.get(message.from_user.id, "menu")
-    if mode != "assistant":
+@router.message(TestState.in_test)
+async def process_test_answer(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    current_index = data.get("current_index", 0)
+    history = data.get("history", [])
+    
+    # Foydalanuvchi javobi
+    user_answer = message.text or "Ovozli javob berildi"
+    current_q = MOCK_QUESTIONS[current_index]["q"]
+    
+    # Javobni tarixga saqlash
+    history.append({"question": current_q, "answer": user_answer})
+    
+    next_index = current_index + 1
+    
+    # Agar savollar tugasa -> 3 ta Part tamomlandi!
+    if next_index >= len(MOCK_QUESTIONS):
+        await message.answer("⏳ **Rahmat! 3-qism ham yakunlandi. AI javoblaringizni tahlil qilmoqda...**", parse_mode="Markdown")
+        
+        # Groq orqali Band Score va tahlil olish
+        result = evaluate_speaking_test(history)
+        
         await message.answer(
-            "Ovozli practice uchun avval 💬 <b>AI Assistant</b> rejimini tanlang: /start bosing."
+            f"🎉 **IELTS Mock Test Natijangiz:**\n\n{result}",
+            parse_mode="Markdown",
+            reply_markup=get_main_keyboard()
         )
-        return
-
-    processing = await message.answer("🎧 Eshityapman...")
-
-    with tempfile.TemporaryDirectory() as tmp:
-        ogg_path = os.path.join(tmp, "voice.ogg")
-        try:
-            file = await bot.get_file(message.voice.file_id)
-            await bot.download_file(file.file_path, ogg_path)
-            text = ai.transcribe_audio(ogg_path)
-        except Exception as e:
-            logger.exception("Voice transcribe error")
-            await processing.edit_text(f"❌ Audioni matnga aylantirishda xatolik yuz berdi: {e}")
-            return
-
-        await processing.edit_text(f"📝 Eshitganim: <i>{text}</i>\n\n⏳ Tahlil qilyapman...")
-
-        try:
-            feedback = ai.correct_and_explain(text)
-        except Exception as e:
-            logger.exception("Correction error")
-            await message.answer(f"❌ Tahlil qilishda xatolik yuz berdi: {e}")
-            return
-
-        await message.answer(feedback)
-
-
-@router.message(F.text & ~F.text.startswith("/"))
-async def handle_text(message: Message):
-    mode = USER_MODE.get(message.from_user.id, "menu")
-    if mode != "assistant":
-        await message.answer("Amal tanlash uchun /start bosing.")
-        return
-
-    processing = await message.answer("⏳ Tekshiryapman...")
-    try:
-        feedback = ai.correct_and_explain(message.text)
-        await processing.edit_text(feedback)
-    except Exception as e:
-        logger.exception("Text correction error")
-        await processing.edit_text(f"❌ Xatolik yuz berdi: {e}")
+        await state.clear()
+    else:
+        # Keyingi savolga o'tish
+        await state.update_data(current_index=next_index, history=history)
+        next_q = MOCK_QUESTIONS[next_index]["q"]
+        next_part = MOCK_QUESTIONS[next_index]["part"]
+        
+        await message.answer(
+            f"📍 **Part {next_part}**\n\n{next_index + 1}-Savol:\n{next_q}",
+            parse_mode="Markdown"
+        )
