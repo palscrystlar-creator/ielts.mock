@@ -1,224 +1,320 @@
 import os
 import logging
-import tempfile
-from contextlib import asynccontextmanager
-
-from fastapi import FastAPI, Request, UploadFile, File, Form
-from fastapi.responses import JSONResponse, FileResponse
-from fastapi.staticfiles import StaticFiles
-
-from aiogram import Bot, Dispatcher
-from aiogram.client.default import DefaultBotProperties
-from aiogram.enums import ParseMode
-from aiogram.types import Update
-
-from bot.handlers import router
-from bot import ai
+import base64
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, HTMLResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
-import os
-from bot.ai import get_ai_response, evaluate_speaking_test
-import os
-import logging
-from fastapi import FastAPI, Request
-from aiogram import Bot, Dispatcher
-from aiogram.types import Update
+from fastapi.responses import HTMLResponse, JSONResponse
+from aiogram import Bot, Dispatcher, Router, types
+from aiogram.filters import CommandStart
+from aiogram.types import Update, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 from dotenv import load_dotenv
-
-from bot.handlers import router
+from groq import Groq
+from gtts import gTTS
 
 load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-WEBHOOK_PATH = "/webhook"
-WEBHOOK_URL = os.getenv("WEBHOOK_URL", "")  # masalan: https://ielts-mock-6yvx.onrender.com
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://ielts-mock-6yvx.onrender.com")
 
+groq_client = Groq(api_key=GROQ_API_KEY)
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
-dp.include_router(router)
+router = Router()
 
 app = FastAPI()
+
+SYSTEM_PROMPT = """
+You are 'Sara AI', a warm, friendly, and smart English Live Speaking Coach.
+You are conducting a 20-minute voice practice session with the user.
+
+Rules:
+1. Keep your answers brief, warm, and natural (1-3 sentences max) so it plays quickly via audio.
+2. If the user makes a grammar or vocabulary error, gently mention the correction in 1 short phrase before replying.
+3. End your responses with a thought-provoking follow-up question to keep the 20-minute conversation flowing naturally.
+"""
+
+# === TELEGRAM BOT HANDLER ===
+
+@router.message(CommandStart())
+async def cmd_start(message: types.Message):
+    miniapp_url = f"{WEBHOOK_URL.rstrip('/')}/miniapp/"
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🎙 Start 20-Min Voice Session", web_app=WebAppInfo(url=miniapp_url))]
+    ])
+    await message.answer(
+        "👋 **Xush kelibsiz! Men Sara AI Live Coach'man.**\n\n"
+        "20 daqiqalik ovozli muloqot seansini boshlash uchun quyidagi tugmani bosing!",
+        reply_markup=keyboard,
+        parse_mode="Markdown"
+    )
+
+dp.include_router(router)
+
+# === FASTAPI ROUTELARI ===
 
 @app.on_event("startup")
 async def on_startup():
     if WEBHOOK_URL:
-        url = f"{WEBHOOK_URL}{WEBHOOK_PATH}"
+        url = f"{WEBHOOK_URL.rstrip('/')}/webhook"
         await bot.set_webhook(url)
         logging.info(f"Webhook o'rnatildi: {url}")
 
-@app.get("/")
-async def root():
-    return {"message": "IELTS Speaking Bot is running!"}
-
-@app.post(WEBHOOK_PATH)
+@app.post("/webhook")
 async def bot_webhook(request: Request):
     data = await request.json()
     update = Update(**data)
     await dp.feed_update(bot, update)
     return {"status": "ok"}
 
-# Mini app javoblarini baholash API
-@app.post("/api/evaluate")
-async def evaluate_api(request: Request):
+@app.post("/api/chat")
+async def chat_api(request: Request):
     try:
-        data = await request.json()
-        history = data.get("history", [])
-        result = evaluate_speaking_test(history)
-        return JSONResponse(content={"status": "success", "result": result})
-    except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content={"status": "error", "message": str(e)}
+        body = await request.json()
+        user_text = body.get("text", "")
+        time_left = body.get("time_left", 1200) # soniyalarda (20 min = 1200s)
+        
+        if not user_text:
+            return JSONResponse({"status": "error", "message": "Text is required"}, status_code=400)
+
+        # Agar vaqt tugashiga 1 minutdan kam qolgan bo'lsa, AI suhbatni yakunlashga tayyorlanadi
+        prompt_modifier = ""
+        if time_left < 60:
+            prompt_modifier = " (Note: The 20-minute session is ending right now. Briefly thank the user and wrap up the practice with a warm closing comment.)"
+
+        completion = groq_client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT + prompt_modifier},
+                {"role": "user", "content": user_text}
+            ],
+            temperature=0.7,
+            max_tokens=250
         )
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+        ai_reply = completion.choices[0].message.content
 
-BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-if not BOT_TOKEN:
-    raise RuntimeError("TELEGRAM_BOT_TOKEN environment variable topilmadi (.env faylni tekshiring)")
+        # Audio yaratish
+        temp_file = "temp_audio.mp3"
+        tts = gTTS(text=ai_reply, lang='en', slow=False)
+        tts.save(temp_file)
 
-# Render avtomatik RENDER_EXTERNAL_URL beradi, lokal uchun BASE_URL ishlatiladi
-BASE_URL = os.getenv("RENDER_EXTERNAL_URL") or os.getenv("BASE_URL")
-WEBHOOK_PATH = "/webhook"
+        with open(temp_file, "rb") as audio_file:
+            audio_base64 = base64.b64encode(audio_file.read()).decode("utf-8")
 
-bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-dp = Dispatcher()
-dp.include_router(router)
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
 
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    if BASE_URL:
-        webhook_url = f"{BASE_URL.rstrip('/')}{WEBHOOK_PATH}"
-        await bot.set_webhook(webhook_url, drop_pending_updates=True)
-        logger.info(f"Webhook o'rnatildi: {webhook_url}")
-    else:
-        logger.warning("BASE_URL/RENDER_EXTERNAL_URL topilmadi — webhook o'rnatilmadi (lokal test rejimi).")
-    yield
-    await bot.session.close()
-
-
-app = FastAPI(lifespan=lifespan)
-
-# Mini App statik fayllarini /miniapp/ manzilida ko'rsatish
-app.mount("/miniapp", StaticFiles(directory="miniapp", html=True), name="miniapp")
-
-
-@app.get("/")
-async def root():
-    return {"status": "ok", "service": "IELTS Speaking Telegram Bot"}
-
-
-@app.post(WEBHOOK_PATH)
-async def telegram_webhook(request: Request):
-    data = await request.json()
-    update = Update.model_validate(data, context={"bot": bot})
-    await dp.feed_update(bot, update)
-    return {"ok": True}
-
-
-# =========================================================
-#  Mini App API — IELTS Mock Test
-# =========================================================
-
-# Sodda xotira-ichi sessiya (shaxsiy/test foydalanish uchun yetarli)
-SESSIONS: dict[str, dict] = {}
-
-# Mock test tuzilishi: 2 ta Part1, 1 ta Part2 (cue card), 2 ta Part3
-PART_ORDER = ["part1", "part1", "part2", "part3", "part3"]
-
-
-@app.post("/api/mock/start")
-async def mock_start(user_id: str = Form(...)):
-    question = ai.generate_question("part1")
-    SESSIONS[user_id] = {"step": 0, "current_question": question, "history": []}
-    return {
-        "question": question,
-        "part": "part1",
-        "step": 0,
-        "total": len(PART_ORDER),
-    }
-
-
-@app.post("/api/mock/answer")
-async def mock_answer(user_id: str = Form(...), audio: UploadFile = File(...)):
-    session = SESSIONS.get(user_id)
-    if not session:
-        return JSONResponse(
-            {"error": "Sessiya topilmadi. Iltimos, testni qaytadan boshlang."}, status_code=400
-        )
-
-    with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as tmp:
-        tmp.write(await audio.read())
-        tmp_path = tmp.name
-
-    try:
-        answer_text = ai.transcribe_audio(tmp_path)
+        return JSONResponse({
+            "status": "success",
+            "reply": ai_reply,
+            "audio": f"data:audio/mp3;base64,{audio_base64}"
+        })
     except Exception as e:
-        logger.exception("Mock transcribe error")
-        return JSONResponse({"error": f"Audio tahlilida xatolik: {e}"}, status_code=500)
-    finally:
-        os.remove(tmp_path)
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
 
-    part = PART_ORDER[session["step"]]
+# Single-file HTML Mini App (20-min Timer bilan)
+@app.get("/miniapp/", response_class=HTMLResponse)
+async def serve_miniapp():
+    html_code = """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Sara AI - 20 Min Live Coach</title>
+        <script src="https://telegram.org/js/telegram-web-app.js"></script>
+        <style>
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                background-color: #0f172a;
+                color: #f8fafc;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: space-between;
+                height: 100vh;
+                margin: 0;
+                padding: 16px;
+                box-sizing: border-box;
+            }
+            .header { text-align: center; }
+            .header h1 { font-size: 20px; color: #38bdf8; margin: 0; }
+            .timer {
+                font-size: 16px;
+                font-weight: bold;
+                background: #1e293b;
+                color: #f59e0b;
+                padding: 6px 14px;
+                border-radius: 20px;
+                display: inline-block;
+                margin-top: 6px;
+                border: 1px solid #334155;
+            }
+            
+            .chat-container {
+                width: 100%;
+                max-width: 420px;
+                flex-grow: 1;
+                overflow-y: auto;
+                margin: 15px 0;
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+            }
+            .msg { padding: 12px 16px; border-radius: 16px; font-size: 15px; max-width: 82%; line-height: 1.4; }
+            .user { background: #0284c7; align-self: flex-end; border-bottom-right-radius: 4px; }
+            .ai { background: #334155; align-self: flex-start; border-bottom-left-radius: 4px; border: 1px solid #475569; }
 
-    try:
-        evaluation = ai.evaluate_answer(session["current_question"], answer_text, part)
-    except Exception as e:
-        logger.exception("Mock evaluate error")
-        return JSONResponse({"error": f"Baholashda xatolik: {e}"}, status_code=500)
+            .controls { display: flex; flex-direction: column; align-items: center; width: 100%; max-width: 420px; gap: 12px; }
+            .mic-btn {
+                width: 76px; height: 76px; border-radius: 50%; background: #38bdf8;
+                border: none; color: #0f172a; font-size: 30px; cursor: pointer;
+                box-shadow: 0 0 20px rgba(56, 189, 248, 0.4); transition: all 0.2s;
+                display: flex; align-items: center; justify-content: center;
+            }
+            .mic-btn.recording { background: #ef4444; box-shadow: 0 0 25px rgba(239, 68, 68, 0.6); animation: pulse 1.2s infinite; }
+            
+            @keyframes pulse {
+                0% { transform: scale(1); }
+                50% { transform: scale(1.08); }
+                100% { transform: scale(1); }
+            }
 
-    session["history"].append(
-        {"question": session["current_question"], "answer": answer_text, "eval": evaluation}
-    )
-    session["step"] += 1
+            .input-box { display: flex; width: 100%; gap: 8px; }
+            .input-box input {
+                flex: 1; padding: 12px 16px; border-radius: 25px; border: 1px solid #334155;
+                background: #1e293b; color: white; outline: none;
+            }
+            .input-box button {
+                padding: 12px 20px; border-radius: 25px; border: none; background: #38bdf8;
+                color: #0f172a; font-weight: bold; cursor: pointer;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>🎙 Sara AI Live Speaking</h1>
+            <div class="timer" id="timer">⏱ 20:00</div>
+        </div>
 
-    if session["step"] >= len(PART_ORDER):
-        try:
-            report = ai.final_report(session["history"])
-        except Exception as e:
-            logger.exception("Final report error")
-            report = None
-        del SESSIONS[user_id]
-        return {
-            "finished": True,
-            "answer_text": answer_text,
-            "evaluation": evaluation,
-            "final_report": report,
-        }
+        <div class="chat-container" id="chat">
+            <div class="msg ai">Hello! I'm Sara. We have 20 minutes to practice speaking today. Tap the microphone or write below to start!</div>
+        </div>
 
-    next_part = PART_ORDER[session["step"]]
-    try:
-        next_question = ai.generate_question(next_part)
-    except Exception as e:
-        logger.exception("Next question error")
-        return JSONResponse({"error": f"Keyingi savol yaratishda xatolik: {e}"}, status_code=500)
+        <div class="controls">
+            <button class="mic-btn" id="micBtn" onclick="toggleSpeech()">🎙</button>
+            <div class="input-box">
+                <input type="text" id="userInput" placeholder="Type or speak..." onkeypress="handleKey(event)">
+                <button onclick="sendText()">Send</button>
+            </div>
+        </div>
 
-    session["current_question"] = next_question
+        <script>
+            const tg = window.Telegram.WebApp;
+            tg.expand();
 
-    return {
-        "finished": False,
-        "answer_text": answer_text,
-        "evaluation": evaluation,
-        "next_question": next_question,
-        "part": next_part,
-        "step": session["step"],
-        "total": len(PART_ORDER),
-    }
+            const chat = document.getElementById('chat');
+            const micBtn = document.getElementById('micBtn');
+            const userInput = document.getElementById('userInput');
+            const timerDisplay = document.getElementById('timer');
 
+            let timeLeft = 1200; // 20 daqiqa (seconds)
+            let timerInterval = null;
 
-@app.post("/api/tts")
-async def api_tts(text: str = Form(...)):
-    """Berilgan matnni ovozga aylantirib, mp3 fayl sifatida qaytaradi."""
-    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
-        path = tmp.name
-    try:
-        ai.text_to_speech(text[:1000], path)
-    except Exception as e:
-        logger.exception("TTS API error")
-        return JSONResponse({"error": f"Ovoz yaratishda xatolik: {e}"}, status_code=500)
-    return FileResponse(path, media_type="audio/mpeg", filename="speech.mp3")
+            function startTimer() {
+                if (timerInterval) return;
+                timerInterval = setInterval(() => {
+                    if (timeLeft <= 0) {
+                        clearInterval(timerInterval);
+                        timerDisplay.innerText = "⏱ Time's up!";
+                        alert("20-minute session complete! Great job practice today.");
+                        return;
+                    }
+                    timeLeft--;
+                    let mins = Math.floor(timeLeft / 60);
+                    let secs = timeLeft % 60;
+                    timerDisplay.innerText = `⏱ ${mins}:${secs < 10 ? '0' : ''}${secs}`;
+                }, 1000);
+            }
+
+            let recognition;
+            let isRecording = false;
+
+            if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                recognition = new SpeechRecognition();
+                recognition.lang = 'en-US';
+                recognition.continuous = false;
+
+                recognition.onresult = (event) => {
+                    const text = event.results[0][0].transcript;
+                    userInput.value = text;
+                    sendText();
+                };
+
+                recognition.onend = () => {
+                    isRecording = false;
+                    micBtn.classList.remove('recording');
+                };
+            }
+
+            function toggleSpeech() {
+                startTimer();
+                if (!recognition) {
+                    alert("Speech recognition is not supported on this browser device.");
+                    return;
+                }
+                if (isRecording) {
+                    recognition.stop();
+                } else {
+                    recognition.start();
+                    isRecording = true;
+                    micBtn.classList.add('recording');
+                }
+            }
+
+            function addMessage(text, isUser) {
+                const div = document.createElement('div');
+                div.className = `msg ${isUser ? 'user' : 'ai'}`;
+                div.innerText = text;
+                chat.appendChild(div);
+                chat.scrollTop = chat.scrollHeight;
+            }
+
+            async function sendText() {
+                startTimer();
+                const text = userInput.value.trim();
+                if (!text) return;
+
+                addMessage(text, true);
+                userInput.value = '';
+
+                try {
+                    const res = await fetch('/api/chat', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ text: text, time_left: timeLeft })
+                    });
+                    const data = await res.json();
+
+                    if (data.status === 'success') {
+                        addMessage(data.reply, false);
+                        const audio = new Audio(data.audio);
+                        audio.play();
+                    } else {
+                        addMessage("Error: " + data.message, false);
+                    }
+                } catch (e) {
+                    addMessage("Connection error!", false);
+                }
+            }
+
+            function handleKey(e) {
+                if (e.key === 'Enter') sendText();
+            }
+        </script>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html_code)
