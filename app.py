@@ -14,7 +14,49 @@ from aiogram.types import Update
 
 from bot.handlers import router
 from bot import ai
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+import os
+from bot.ai import get_ai_response, evaluate_speaking_test
 
+app = FastAPI()
+
+# Mini app sahifasini ko'rsatish
+@app.get("/miniapp/", response_class=HTMLResponse)
+async def serve_miniapp(request: Request):
+    # mini app HTML faylingiz joylashgan manzil
+    with open("templates/index.html", "r", encoding="utf-8") as f:
+        html_content = f.read()
+    return HTMLResponse(content=html_content)
+
+# Mini app orqali testni boshlash API
+@app.post("/api/start-test")
+async def start_test_api():
+    try:
+        prompt = "Generate a typical IELTS Speaking Part 1 question about hobbies or hometown. Output ONLY the question text."
+        question = get_ai_response([{"role": "user", "content": prompt}])
+        return JSONResponse(content={"status": "success", "question": question})
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "message": str(e)}
+        )
+
+# Mini app javoblarini baholash API
+@app.post("/api/evaluate")
+async def evaluate_api(request: Request):
+    try:
+        data = await request.json()
+        history = data.get("history", [])
+        result = evaluate_speaking_test(history)
+        return JSONResponse(content={"status": "success", "result": result})
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "message": str(e)}
+        )
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
