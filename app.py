@@ -20,29 +20,46 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 import os
 from bot.ai import get_ai_response, evaluate_speaking_test
+import os
+import logging
+from fastapi import FastAPI, Request
+from aiogram import Bot, Dispatcher
+from aiogram.types import Update
+from dotenv import load_dotenv
+
+from bot.handlers import router
+
+load_dotenv()
+
+logging.basicConfig(level=logging.INFO)
+
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+WEBHOOK_PATH = "/webhook"
+WEBHOOK_URL = os.getenv("WEBHOOK_URL", "")  # masalan: https://ielts-mock-6yvx.onrender.com
+
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher()
+dp.include_router(router)
 
 app = FastAPI()
 
-# Mini app sahifasini ko'rsatish
-@app.get("/miniapp/", response_class=HTMLResponse)
-async def serve_miniapp(request: Request):
-    # mini app HTML faylingiz joylashgan manzil
-    with open("templates/index.html", "r", encoding="utf-8") as f:
-        html_content = f.read()
-    return HTMLResponse(content=html_content)
+@app.on_event("startup")
+async def on_startup():
+    if WEBHOOK_URL:
+        url = f"{WEBHOOK_URL}{WEBHOOK_PATH}"
+        await bot.set_webhook(url)
+        logging.info(f"Webhook o'rnatildi: {url}")
 
-# Mini app orqali testni boshlash API
-@app.post("/api/start-test")
-async def start_test_api():
-    try:
-        prompt = "Generate a typical IELTS Speaking Part 1 question about hobbies or hometown. Output ONLY the question text."
-        question = get_ai_response([{"role": "user", "content": prompt}])
-        return JSONResponse(content={"status": "success", "question": question})
-    except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content={"status": "error", "message": str(e)}
-        )
+@app.get("/")
+async def root():
+    return {"message": "IELTS Speaking Bot is running!"}
+
+@app.post(WEBHOOK_PATH)
+async def bot_webhook(request: Request):
+    data = await request.json()
+    update = Update(**data)
+    await dp.feed_update(bot, update)
+    return {"status": "ok"}
 
 # Mini app javoblarini baholash API
 @app.post("/api/evaluate")
