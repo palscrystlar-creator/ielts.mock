@@ -1,6 +1,6 @@
 fastapi
 uvicorn[standard]
-aiogram==3.17.0
+aiogram==3.15.0
 groq
 python-multipart
 python-dotenv
