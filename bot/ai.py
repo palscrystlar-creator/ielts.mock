@@ -7,7 +7,12 @@ Groq API orqali AI funksiyalari (100% tekin):
 import os
 import json
 from groq import Groq
+from gtts import gTTS
 
+def text_to_speech(text: str, output_path: str):
+    """Matnni ingliz tilida talaffuz qilib, MP3 fayl sifatida saqlaydi."""
+    tts = gTTS(text=text, lang='en', slow=False)
+    tts.save(output_path)
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 CHAT_MODEL = "llama-3.3-70b-versatile"
