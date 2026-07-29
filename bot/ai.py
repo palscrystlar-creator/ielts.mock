@@ -73,6 +73,104 @@ def generate_question(part: str = "part1") -> str:
         "part1": "Generate 1 typical IELTS Speaking Part 1 question about daily life, hometown, work, or hobbies. Output ONLY the question text.",
         "part2": "Generate 1 IELTS Speaking Part 2 Cue Card topic with 3 bullet points. Output ONLY the Cue Card text.",
         "part3": "Generate 1 abstract IELTS Speaking Part 3 discussion question. Output ONLY the question text."
+    """
+Groq API va gTTS orqali AI funksiyalari (100% tekin):
+- transcribe_audio: Groq Whisper orqali ovozni matnga aylantirish
+- text_to_speech: gTTS orqali matnni ovozli mp3 ga aylantirish (Tekin!)
+- correct_and_explain: Sensiraydigan va kamsitadigan zaharxanda Coach
+"""
+
+import os
+import json
+from groq import Groq
+from gtts import gTTS
+
+client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+
+CHAT_MODEL = "llama-3.3-70b-versatile"
+WHISPER_MODEL = "whisper-large-v3-turbo"
+
+IELTS_PARTS = {
+    "part1": "IELTS Speaking Part 1 - oddiy shaxsiy savol",
+    "part2": "IELTS Speaking Part 2 - cue card topshirig'i",
+    "part3": "IELTS Speaking Part 3 - tahliliy savol",
+}
+
+
+def transcribe_audio(file_path: str) -> str:
+    """Audio faylni Groq Whisper orqali ingliz tilidagi matnga aylantiradi."""
+    with open(file_path, "rb") as f:
+        result = client.audio.transcriptions.create(
+            model=WHISPER_MODEL,
+            file=f,
+            language="en",
+        )
+    return result.text.strip()
+
+
+def text_to_speech(text: str, out_path: str) -> str:
+    """gTTS orqali matnni ovozli mp3 faylga aylantiradi (100% tekin)."""
+    # Inglizcha matnlar uchun 'en' yoki o'zbekcha tushuntirishlar uchun 'en' ishlatamiz (gTTS o'zbek tilini ham o'qiydi, lekin ingliz tilida tabiiyroq chiqadi)
+    tts = gTTS(text=text, lang='en', slow=False)
+    tts.save(out_path)
+    return out_path
+
+
+def generate_question(part: str) -> str:
+    prompt = f"Sen tajribali IELTS examinersan. {IELTS_PARTS[part]}. Faqat BITTA original savol yoz (ingliz tilida), qo'shimcha izoh yozma."
+    resp = client.chat.completions.create(
+        model=CHAT_MODEL,
+        messages=[{"role": "user", "content": prompt}],
+        temperature=1.0,
+    )
+    return resp.choices[0].message.content.strip()
+
+
+def evaluate_answer(question: str, answer: str, part: str) -> dict:
+    prompt = f"Bo'lim: {part}\nSavol: {question}\nJavob: {answer}\nJSON formatida bahola (band_estimate, strengths, errors, improved_version, tip). Izoh yozma."
+    resp = client.chat.completions.create(
+        model=CHAT_MODEL,
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.5,
+        response_format={"type": "json_object"},
+    )
+    return json.loads(resp.choices[0].message.content)
+
+
+def final_report(history: list) -> dict:
+    transcript = "\n\n".join(f"Savol: {h['question']}\nJavob: {h['answer']}" for h in history)
+    prompt = f"Transkript:\n{transcript}\nYakuniy hisobotni JSON formatida ber (overall_band, fluency_coherence, lexical_resource, grammar_range_accuracy, pronunciation_note, top_advice)."
+    resp = client.chat.completions.create(
+        model=CHAT_MODEL,
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.5,
+        response_format={"type": "json_object"},
+    )
+    return json.loads(resp.choices[0].message.content)
+
+
+def correct_and_explain(user_text: str) -> str:
+    """Sensiraydigan, kamsitadigan va sarkazm bilan xatolarni ko'rsatuvchi AI Coach."""
+    prompt = f"""Sen IELTS bo'yicha juda kamsituvchi, foydalanuvchining bilimini pastga uradigan va zaharxanda (sarkastik) AI Coachsan.
+Sening maqsading — foydalanuvchiga FAQAT "SENSIRAB" (sen, sening, deyapsan, yozgansan) murojaat qilish. Sizlash umuman MUMKIN EMAS.
+Sening vazifang so'kinmasdan, lekin foydalanuvchiga uning ingliz tili qanchalik achinarli darajada ekanini zaharli va kamsituvchi tonda aytish.
+
+Talaba shuni yozdi yoki gapirdi (ingliz tilida): "{user_text}"
+
+Vazifang:
+1. Darhol uni va uning javobini zaharxanda va kamsitish bilan qarshilab ol (faqat sensirab!).
+2. Jumlaning AYNAN qaysi qismida xato borligini ko'rsat (❌ Achinarli xato).
+3. Nima uchun bu xato ekanini o'zbekcha kamsitib, sensirab tushuntir.
+4. To'g'ri variantini yoz (✅ To'g'ri variant).
+
+Javobni o'zbek tilida, so'kinishlarsiz, lekin juda achchiq, sarkastik, kamsituvchi va FAQAT SENSIRAB yoz. Qisqa va o'tkir qil (3-5 qatordan oshmasin, chunki ovozli xabar qilib yuboriladi)."""
+
+    resp = client.chat.completions.create(
+        model=CHAT_MODEL,
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.8,
+    )
+    return resp.choices[0].message.content.strip()
     }
     
     prompt = prompts.get(part, prompts["part1"])
