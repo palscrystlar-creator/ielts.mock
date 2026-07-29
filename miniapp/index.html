@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>IELTS Speaking Mock</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ===== INTRO SCREEN ===== -->
+  <section id="screen-intro" class="screen active">
+    <div class="intro-mark">IELTS</div>
+    <h1 class="intro-title">Speaking<br/>Mock Exam</h1>
+    <p class="intro-sub">Sun'iy intellekt imtihonchi rolida sizdan 5 ta savol so'raydi — Part 1, Part 2 va Part 3. Har safar savollar boshqacha bo'ladi.</p>
+
+    <ul class="intro-steps">
+      <li><span class="num">01</span> Mikrofon ruxsatini bering</li>
+      <li><span class="num">02</span> Savolni tinglang, ovozli javob bering</li>
+      <li><span class="num">03</span> Har javobdan keyin darhol feedback oling</li>
+    </ul>
+
+    <button id="btn-start" class="btn-primary">Testni boshlash</button>
+    <p class="intro-note">Yaxshi mikrofon va tinch joy tavsiya etiladi.</p>
+  </section>
+
+  <!-- ===== TEST SCREEN ===== -->
+  <section id="screen-test" class="screen">
+    <header class="test-header">
+      <span id="part-label" class="part-label">PART 1</span>
+      <div class="progress-track">
+        <div id="progress-fill" class="progress-fill"></div>
+      </div>
+      <span id="step-label" class="step-label">1 / 5</span>
+    </header>
+
+    <div class="question-stage">
+      <p id="question-text" class="question-text">Savol yuklanmoqda…</p>
+      <button id="btn-listen" class="btn-ghost">🔊 Savolni tinglash</button>
+    </div>
+
+    <div id="feedback-card" class="feedback-card hidden">
+      <div class="feedback-row">
+        <span class="feedback-label">Taxminiy band</span>
+        <span id="fb-band" class="feedback-band">—</span>
+      </div>
+      <div class="feedback-block">
+        <span class="feedback-tag good">✅ Yaxshi tomonlar</span>
+        <p id="fb-strengths"></p>
+      </div>
+      <div class="feedback-block">
+        <span class="feedback-tag bad">❌ Xatolar</span>
+        <p id="fb-errors"></p>
+      </div>
+      <div class="feedback-block">
+        <span class="feedback-tag neutral">✍️ Yaxshilangan variant</span>
+        <p id="fb-improved" class="improved"></p>
+      </div>
+      <div class="feedback-block">
+        <span class="feedback-tag tip">💡 Maslahat</span>
+        <p id="fb-tip"></p>
+      </div>
+      <button id="btn-next" class="btn-primary">Keyingi savol →</button>
+    </div>
+
+    <footer class="record-dock">
+      <div id="rec-status" class="rec-status">Javob berishga tayyor bo'lganingizda bosing</div>
+      <button id="btn-record" class="mic-btn">
+        <span class="mic-ring ring-1"></span>
+        <span class="mic-ring ring-2"></span>
+        <span class="mic-core">●</span>
+      </button>
+      <div id="rec-timer" class="rec-timer">00:00</div>
+    </footer>
+  </section>
+
+  <!-- ===== LOADING SCREEN ===== -->
+  <section id="screen-loading" class="screen">
+    <div class="loader-orb"></div>
+    <p id="loading-text" class="loading-text">Javobingiz tahlil qilinmoqda…</p>
+  </section>
+
+  <!-- ===== RESULT SCREEN ===== -->
+  <section id="screen-result" class="screen">
+    <span class="result-eyebrow">Yakuniy natija</span>
+    <div class="result-band">
+      <span id="result-band-num">—</span>
+    </div>
+    <div class="result-grid">
+      <div class="result-item">
+        <span class="result-item-label">Fluency & Coherence</span>
+        <p id="res-fluency"></p>
+      </div>
+      <div class="result-item">
+        <span class="result-item-label">Lexical Resource</span>
+        <p id="res-lexical"></p>
+      </div>
+      <div class="result-item">
+        <span class="result-item-label">Grammar</span>
+        <p id="res-grammar"></p>
+      </div>
+      <div class="result-item">
+        <span class="result-item-label">Talaffuz eslatmasi</span>
+        <p id="res-pron"></p>
+      </div>
+    </div>
+    <div class="result-advice">
+      <span class="result-item-label">Top maslahatlar</span>
+      <ol id="res-advice"></ol>
+    </div>
+    <button id="btn-restart" class="btn-primary">Yana bir bor topshirish</button>
+  </section>
+
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
