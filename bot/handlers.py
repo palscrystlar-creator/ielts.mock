@@ -3,7 +3,7 @@ import tempfile
 import logging
 
 from aiogram import Router, F, Bot
-from aiogram.types import Message, CallbackQuery, FSInputFile
+from aiogram.types import Message, CallbackQuery
 from aiogram.filters import CommandStart, Command
 
 from .keyboards import main_menu, assistant_menu
@@ -12,8 +12,6 @@ from . import ai
 logger = logging.getLogger(__name__)
 router = Router()
 
-# Eslatma: bu oddiy xotira-ichi holat, faqat shaxsiy/test foydalanish uchun yetarli.
-# Ko'p foydalanuvchi/production uchun buni Redis yoki DB'ga ko'chirish kerak bo'ladi.
 USER_MODE: dict[int, str] = {}
 
 WELCOME_TEXT = (
@@ -101,13 +99,6 @@ async def handle_voice(message: Message, bot: Bot):
             return
 
         await message.answer(feedback)
-
-        try:
-            mp3_path = os.path.join(tmp, "reply.mp3")
-            ai.text_to_speech(feedback[:900], mp3_path)
-            await message.answer_voice(FSInputFile(mp3_path))
-        except Exception:
-            logger.exception("TTS reply error (ovozsiz javob bilan davom etildi)")
 
 
 @router.message(F.text & ~F.text.startswith("/"))
