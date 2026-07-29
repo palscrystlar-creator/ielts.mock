@@ -67,3 +67,13 @@ def text_to_speech(text: str, output_path: str):
     """Matnni ingliz tilida talaffuz qilib, MP3 fayl sifatida saqlaydi."""
     tts = gTTS(text=text, lang='en', slow=False)
     tts.save(output_path)
+def generate_question(part: str = "part1") -> str:
+    """Mini App uchun IELTS savolini generatsiya qilish."""
+    prompts = {
+        "part1": "Generate 1 typical IELTS Speaking Part 1 question about daily life, hometown, work, or hobbies. Output ONLY the question text.",
+        "part2": "Generate 1 IELTS Speaking Part 2 Cue Card topic with 3 bullet points. Output ONLY the Cue Card text.",
+        "part3": "Generate 1 abstract IELTS Speaking Part 3 discussion question. Output ONLY the question text."
+    }
+    
+    prompt = prompts.get(part, prompts["part1"])
+    return get_ai_response([{"role": "user", "content": prompt}])
