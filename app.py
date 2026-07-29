@@ -60,11 +60,15 @@ dp.include_router(router)
 
 @app.on_event("startup")
 async def on_startup():
-    if bot and WEBHOOK_URL:
+    if bot and WEBHOOK_URL and WEBHOOK_URL.startswith("https://"):
         url = f"{WEBHOOK_URL.rstrip('/')}/webhook"
-        await bot.set_webhook(url)
-        logging.info(f"Webhook o'rnatildi: {url}")
-
+        try:
+            await bot.set_webhook(url)
+            logging.info(f"✅ Webhook muvaffaqiyatli o'rnatildi: {url}")
+        except Exception as e:
+            logging.error(f"❌ Webhook o'rnatishda xatolik: {e}")
+    else:
+        logging.warning("⚠️ WEBHOOK_URL ko'rsatilmagan yoki 'https://' bilan boshlanmagan!")
 @app.post("/webhook")
 async def bot_webhook(request: Request):
     if not bot:
