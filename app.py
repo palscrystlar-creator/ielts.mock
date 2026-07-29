@@ -18,11 +18,15 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://ielts-mock-6yvx.onrender.com")
 
-groq_client = Groq(api_key=GROQ_API_KEY)
-bot = Bot(token=BOT_TOKEN)
+# Token mavjudligini xavfsiz tekshirish
+if not BOT_TOKEN:
+    logging.error("CRITICAL ERROR: BOT_TOKEN Environment Variable topilmadi!")
+
+bot = Bot(token=BOT_TOKEN) if BOT_TOKEN else None
+groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
+
 dp = Dispatcher()
 router = Router()
-
 app = FastAPI()
 
 SYSTEM_PROMPT = """
@@ -56,13 +60,15 @@ dp.include_router(router)
 
 @app.on_event("startup")
 async def on_startup():
-    if WEBHOOK_URL:
+    if bot and WEBHOOK_URL:
         url = f"{WEBHOOK_URL.rstrip('/')}/webhook"
         await bot.set_webhook(url)
         logging.info(f"Webhook o'rnatildi: {url}")
 
 @app.post("/webhook")
 async def bot_webhook(request: Request):
+    if not bot:
+        return JSONResponse({"status": "error", "message": "Bot token not configured"}, status_code=500)
     data = await request.json()
     update = Update(**data)
     await dp.feed_update(bot, update)
@@ -71,14 +77,16 @@ async def bot_webhook(request: Request):
 @app.post("/api/chat")
 async def chat_api(request: Request):
     try:
+        if not groq_client:
+            return JSONResponse({"status": "error", "message": "Groq API Key not configured"}, status_code=500)
+
         body = await request.json()
         user_text = body.get("text", "")
-        time_left = body.get("time_left", 1200) # soniyalarda (20 min = 1200s)
+        time_left = body.get("time_left", 1200)
         
         if not user_text:
             return JSONResponse({"status": "error", "message": "Text is required"}, status_code=400)
 
-        # Agar vaqt tugashiga 1 minutdan kam qolgan bo'lsa, AI suhbatni yakunlashga tayyorlanadi
         prompt_modifier = ""
         if time_left < 60:
             prompt_modifier = " (Note: The 20-minute session is ending right now. Briefly thank the user and wrap up the practice with a warm closing comment.)"
@@ -94,7 +102,6 @@ async def chat_api(request: Request):
         )
         ai_reply = completion.choices[0].message.content
 
-        # Audio yaratish
         temp_file = "temp_audio.mp3"
         tts = gTTS(text=ai_reply, lang='en', slow=False)
         tts.save(temp_file)
@@ -112,6 +119,8 @@ async def chat_api(request: Request):
         })
     except Exception as e:
         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+# Frontend HTML qismi kodingizda o'zgarishsiz qoladi...
 
 # Single-file HTML Mini App (20-min Timer bilan)
 @app.get("/miniapp/", response_class=HTMLResponse)
