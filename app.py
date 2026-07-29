@@ -18,12 +18,12 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://ielts-mock-6yvx.onrender.com")
 
-# Token mavjudligini xavfsiz tekshirish
-if not BOT_TOKEN:
-    logging.error("CRITICAL ERROR: BOT_TOKEN Environment Variable topilmadi!")
-
+# Token mavjud bo'lsagina Bot va Groq ob'yektini yaratamiz
 bot = Bot(token=BOT_TOKEN) if BOT_TOKEN else None
 groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
+
+if not BOT_TOKEN:
+    logging.warning("⚠️ OGOHLANTIRISH: BOT_TOKEN topilmadi! Render Environment Variables'ni tekshiring.")
 
 dp = Dispatcher()
 router = Router()
@@ -68,7 +68,7 @@ async def on_startup():
 @app.post("/webhook")
 async def bot_webhook(request: Request):
     if not bot:
-        return JSONResponse({"status": "error", "message": "Bot token not configured"}, status_code=500)
+        return JSONResponse({"status": "error", "message": "Bot token sozlangan emas!"}, status_code=500)
     data = await request.json()
     update = Update(**data)
     await dp.feed_update(bot, update)
@@ -78,7 +78,7 @@ async def bot_webhook(request: Request):
 async def chat_api(request: Request):
     try:
         if not groq_client:
-            return JSONResponse({"status": "error", "message": "Groq API Key not configured"}, status_code=500)
+            return JSONResponse({"status": "error", "message": "Groq API Key topilmadi!"}, status_code=500)
 
         body = await request.json()
         user_text = body.get("text", "")
@@ -120,9 +120,7 @@ async def chat_api(request: Request):
     except Exception as e:
         return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
 
-# Frontend HTML qismi kodingizda o'zgarishsiz qoladi...
-
-# Single-file HTML Mini App (20-min Timer bilan)
+# Single-file HTML Mini App
 @app.get("/miniapp/", response_class=HTMLResponse)
 async def serve_miniapp():
     html_code = """
@@ -160,7 +158,6 @@ async def serve_miniapp():
                 margin-top: 6px;
                 border: 1px solid #334155;
             }
-            
             .chat-container {
                 width: 100%;
                 max-width: 420px;
@@ -228,7 +225,7 @@ async def serve_miniapp():
             const userInput = document.getElementById('userInput');
             const timerDisplay = document.getElementById('timer');
 
-            let timeLeft = 1200; // 20 daqiqa (seconds)
+            let timeLeft = 1200;
             let timerInterval = null;
 
             function startTimer() {
@@ -237,7 +234,7 @@ async def serve_miniapp():
                     if (timeLeft <= 0) {
                         clearInterval(timerInterval);
                         timerDisplay.innerText = "⏱ Time's up!";
-                        alert("20-minute session complete! Great job practice today.");
+                        alert("20-minute session complete! Great job practicing today.");
                         return;
                     }
                     timeLeft--;
