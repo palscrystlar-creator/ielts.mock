@@ -5,3 +5,4 @@ groq
 python-multipart
 python-dotenv
 gTTS==2.5.1
+jinja2
