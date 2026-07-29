@@ -1,8 +1,55 @@
+"""
+Groq API va gTTS orqali intellektual va avtomatik suhbatlashuvchi AI moduli.
+"""
 
 import os
 from groq import Groq
 from gtts import gTTS
 
+client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+CHAT_MODEL = "llama-3.3-70b-versatile"
+
+SYSTEM_PROMPT = """Sen ko'p qirrali AI yordamchisan.
+
+Sening ishlash qoidalaring:
+1. Agar foydalanuvchi INGLIZ TILIDA biror gap yozsa yoki gapirsa (IELTS practice qilayotgan bo'lsa):
+   - Sen zaharli, juda qattiqqo'l, sensiraydigan va kamsitadigan IELTS Coachga aylanasan.
+   - Uning ingliz tilidagi xatolarini yuziga shartta sol, zaharxanda qil va o'zbek tilida sensirab, qisqa va o'tkir qilib tuzatib ber.
+
+2. Agar foydalanuvchi O'ZBEK TILIDA yoki shunchaki salom-alik, erkin muloqot uchun yozsa:
+   - Sen juda samimiy, do'stona, aqlli va xushfe'l AI hamrohsan.
+   - Foydalanuvchi bilan o'zbek tilida erkin, samimiy va qiziqarli suhbat qur.
+"""
+
+
+def smart_reply(user_text: str) -> str:
+    """Inglizcha bo'lsa Coach bo'lib urishadi, o'zbekcha bo'lsa samimiy suhbatlashadi."""
+    resp = client.chat.completions.create(
+        model=CHAT_MODEL,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_text}
+        ],
+        temperature=0.7,
+    )
+    return resp.choices[0].message.content.strip()
+
+
+def transcribe_audio(file_path: str) -> str:
+    """Ovozni matnga o'girish (Whisper orqali)"""
+    with open(file_path, "rb") as f:
+        transcript = client.audio.transcriptions.create(
+            model="whisper-large-v3-turbo",
+            file=f,
+            language="en"
+        )
+    return transcript.text
+
+
+def text_to_speech(text: str, output_path: str):
+    """Matnni ovozga o'girish (gTTS)"""
+    tts = gTTS(text=text, lang="uz")
+    tts.save(output_path)
 # Groq mijozini ishga tushiramiz
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
